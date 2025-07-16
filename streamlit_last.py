@@ -296,52 +296,23 @@ def send_message(thread_id: str, message: str, assistant_id: str) -> str:
 db = load_documents_db()
 
 # 새 문서 업로드 섹션
-st.header("📤 새 문서 업로드")
+# st.header("📤 새 문서 업로드")
+# uploaded_files = st.file_uploader(
+#     "의약품 허가심사보고서를 업로드하세요 (PDF, TXT, DOCX 등):",
+#     accept_multiple_files=True,
+#     type=['pdf', 'txt', 'docx', 'doc', 'csv', 'xlsx', 'md']
+# )
 
-uploaded_files = st.file_uploader(
-    "의약품 허가심사보고서를 업로드하세요 (PDF, TXT, DOCX 등):",
-    accept_multiple_files=True,
-    type=['pdf', 'txt', 'docx', 'doc', 'csv', 'xlsx', 'md']
-)
+# 사용방법 및 주요기능 안내 수정
+st.markdown("""
+### 📝 사용방법
+- 아래 입력창에 질문을 입력하면, 업로드된 의약품 허가심사보고서와 OpenAI Assistant에 등록된 문서를 기반으로 답변을 받을 수 있습니다.
 
-if uploaded_files:
-    if st.button("📚 문서 추가"):
-        with st.spinner("문서를 처리하고 있습니다..."):
-            # Vector Store 생성 또는 가져오기
-            vector_store_id = create_or_get_vector_store(db)
-            
-            if vector_store_id:
-                # 파일 업로드
-                file_ids = []
-                new_documents = []
-                
-                for uploaded_file in uploaded_files:
-                    file_id, filename = upload_file_to_openai(uploaded_file)
-                    if file_id:
-                        file_ids.append(file_id)
-                        new_documents.append({
-                            "filename": filename or uploaded_file.name,
-                            "file_id": file_id,
-                            "uploaded_at": datetime.now().isoformat()
-                        })
-                
-                if file_ids:
-                    # Vector Store에 파일 추가
-                    add_files_to_vector_store(vector_store_id, file_ids)
-                    
-                    # Assistant의 Vector Store 업데이트
-                    update_assistant_vector_store(vector_store_id)
-                    
-                    # DB에 문서 정보 추가
-                    db["documents"].extend(new_documents)
-                    save_documents_db(db)
-                    
-                    st.success(f"✅ {len(file_ids)}개의 문서가 추가되었습니다!")
-                    st.rerun()
-                else:
-                    st.error("파일 업로드에 실패했습니다.")
-            else:
-                st.error("Vector Store 생성에 실패했습니다.")
+### 💡 주요기능
+- 의약품 허가심사보고서 기반 챗봇 질의응답
+- OpenAI Assistant의 Vector Store에 등록된 문서 자동 활용
+- 별도의 초기화/업로드/삭제 과정 없이 바로 대화 시작 가능
+""")
 
 # 챗봇 초기화 섹션
 st.header("🤖 챗봇 초기화")
