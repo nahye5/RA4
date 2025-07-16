@@ -171,9 +171,8 @@ def send_message(thread_id: str, message: str) -> str:
 def get_suggested_questions():
     """자주 묻는 질문 예시"""
     return [
-        "이 의약품의 주요 적응증은 무엇인가요?",
+        "효능효과 추가 사례 알려주세요?",
         "자료제출의약품 제형변경 사례를 알려주세요.",
-        "용법과 용량은 어떻게 되나요?",
         "투여경로 변경 자료제출의약품 사례를 알려주세요",
     ]
 
