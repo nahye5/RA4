@@ -10,228 +10,104 @@ import requests
 # 페이지 설정
 st.set_page_config(
     page_title="의약품 허가심사보고서 AI 챗봇",
-    page_icon="🤖",
-    layout="wide"
+    page_icon="💊",
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
 # 고정된 Assistant ID
 FIXED_ASSISTANT_ID = "asst_nPcXHjfN0G8nFcpWPxo08byE"
 
-# 문서 저장소 경로
-DOCUMENTS_DB_PATH = "documents_db.json"
-
-# 사이드바에서 API 키 입력
-# st.sidebar.header("🔑 API 설정")
-# api_key = st.sidebar.text_input(
-#     "OpenAI API Key를 입력하세요:",
-#     type="password",
-#     help="OpenAI API 키를 입력하세요. https://platform.openai.com/api-keys 에서 발급받을 수 있습니다."
-# )
-
-# 코드에 직접 고정된 API Key 사용
-# api_key = "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"
+# CSS 스타일 적용
+st.markdown("""
+<style>
+    .main-header {
+        text-align: center;
+        padding: 2rem 0;
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 10px;
+        margin-bottom: 2rem;
+    }
+    
+    .chat-container {
+        max-height: 600px;
+        overflow-y: auto;
+        padding: 1rem;
+        border: 1px solid #e0e0e0;
+        border-radius: 10px;
+        background-color: #fafafa;
+    }
+    
+    .feature-box {
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        padding: 1.5rem;
+        border-radius: 10px;
+        margin: 1rem 0;
+        border-left: 4px solid #667eea;
+    }
+    
+    .stats-container {
+        display: flex;
+        justify-content: space-around;
+        margin: 1rem 0;
+    }
+    
+    .stat-box {
+        text-align: center;
+        padding: 1rem;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .typing-indicator {
+        color: #667eea;
+        font-style: italic;
+        animation: pulse 1.5s infinite;
+    }
+    
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # 환경변수에서 API Key 읽기
 api_key = os.getenv("OPENAI_API_KEY")
 
-# 모델 선택
-model_choice = st.sidebar.selectbox(
-    "모델 선택:",
-    ["gpt-4o", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"],
-    index=0,
-    help="Assistant API에서 사용할 모델을 선택하세요. gpt-4o가 권장됩니다."
-)
-
-# 메인 타이틀
-st.title("💊 의약품 허가심사보고서 AI 챗봇")
-st.markdown("---")
+# 메인 헤더
+st.markdown("""
+<div class="main-header">
+    <h1>💊 의약품 허가심사보고서 AI 챗봇</h1>
+    <p>의약품 관련 질문에 전문적이고 정확한 답변을 제공합니다</p>
+</div>
+""", unsafe_allow_html=True)
 
 # API 키 확인
 if not api_key:
-    st.warning("⚠️ 환경변수 OPENAI_API_KEY가 설정되어 있지 않습니다.")
+    st.error("⚠️ 환경변수 OPENAI_API_KEY가 설정되어 있지 않습니다.")
     st.stop()
 
 # OpenAI 클라이언트 초기화
 try:
     client = openai.OpenAI(api_key=api_key)
-    # API 키가 유효한지 확인
+    # API 키 유효성 확인
     models = client.models.list()
 except Exception as e:
-    st.error(f"OpenAI 클라이언트 초기화 실패: {str(e)}")
+    st.error(f"❌ OpenAI 클라이언트 초기화 실패: {str(e)}")
     st.stop()
 
 # 세션 상태 초기화
-if "assistant_id" not in st.session_state:
-    st.session_state.assistant_id = FIXED_ASSISTANT_ID
-if "thread_id" not in st.session_state:
-    st.session_state.thread_id = None
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "vector_store_id" not in st.session_state:
-    st.session_state.vector_store_id = None
-
-def load_documents_db() -> Dict[str, Any]:
-    """문서 데이터베이스 로드"""
-    if os.path.exists(DOCUMENTS_DB_PATH):
-        try:
-            with open(DOCUMENTS_DB_PATH, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except:
-            pass
-    return {
-        "documents": [],
-        "vector_store_id": None,
-        "assistant_id": FIXED_ASSISTANT_ID,
-        "created_at": datetime.now().isoformat()
-    }
-
-def save_documents_db(db: Dict[str, Any]):
-    """문서 데이터베이스 저장"""
-    try:
-        with open(DOCUMENTS_DB_PATH, 'w', encoding='utf-8') as f:
-            json.dump(db, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        st.error(f"문서 데이터베이스 저장 실패: {str(e)}")
-
-def make_api_request(method: str, endpoint: str, data: dict = None, files: dict = None) -> dict:
-    """OpenAI API 직접 호출"""
-    base_url = "https://api.openai.com/v1"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "OpenAI-Beta": "assistants=v2"
-    }
-    
-    url = f"{base_url}{endpoint}"
-    
-    try:
-        if method == "POST":
-            if files:
-                response = requests.post(url, headers=headers, data=data, files=files)
-            else:
-                headers["Content-Type"] = "application/json"
-                response = requests.post(url, headers=headers, json=data)
-        elif method == "GET":
-            response = requests.get(url, headers=headers)
-        elif method == "DELETE":
-            response = requests.delete(url, headers=headers)
-        else:
-            raise ValueError(f"지원되지 않는 메서드: {method}")
-        
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        st.error(f"API 요청 실패: {str(e)}")
-        return None
-
-def create_or_get_vector_store(db: Dict[str, Any]) -> str:
-    """Vector Store 생성 또는 가져오기"""
-    try:
-        # 기존 Vector Store 확인
-        if db.get("vector_store_id"):
-            try:
-                result = make_api_request("GET", f"/vector_stores/{db['vector_store_id']}")
-                if result and result.get("id"):
-                    return result["id"]
-            except:
-                pass
-        
-        # 새 Vector Store 생성
-        data = {
-            "name": "의약품 허가심사보고서 저장소",
-            "expires_after": {
-                "anchor": "last_active_at",
-                "days": 30
-            }
-        }
-        
-        result = make_api_request("POST", "/vector_stores", data)
-        if result and result.get("id"):
-            vector_store_id = result["id"]
-            db["vector_store_id"] = vector_store_id
-            save_documents_db(db)
-            return vector_store_id
-        else:
-            st.error("Vector Store 생성 실패")
-            return None
-            
-    except Exception as e:
-        st.error(f"Vector Store 생성 실패: {str(e)}")
-        return None
-
-def verify_fixed_assistant() -> bool:
-    """고정된 Assistant ID가 유효한지 확인"""
-    try:
-        assistant = client.beta.assistants.retrieve(FIXED_ASSISTANT_ID)
-        return True
-    except Exception as e:
-        st.error(f"Assistant ID '{FIXED_ASSISTANT_ID}'를 찾을 수 없습니다: {str(e)}")
-        return False
-
-def update_assistant_vector_store(vector_store_id: str) -> bool:
-    """고정된 Assistant의 Vector Store를 업데이트"""
-    try:
-        client.beta.assistants.update(
-            assistant_id=FIXED_ASSISTANT_ID,
-            tool_resources={
-                "file_search": {
-                    "vector_store_ids": [vector_store_id]
-                }
-            }
-        )
-        return True
-    except Exception as e:
-        st.error(f"Assistant Vector Store 업데이트 실패: {str(e)}")
-        return False
-
-def upload_file_to_openai(file) -> tuple:
-    """파일을 OpenAI에 업로드"""
-    try:
-        file_obj = client.files.create(
-            file=file,
-            purpose="assistants"
-        )
-        return file_obj.id, file_obj.filename
-    except Exception as e:
-        st.error(f"파일 업로드 실패: {str(e)}")
-        return None, None
-
-def add_files_to_vector_store(vector_store_id: str, file_ids: List[str]):
-    """Vector Store에 파일 추가"""
-    try:
-        data = {
-            "file_ids": file_ids
-        }
-        result = make_api_request("POST", f"/vector_stores/{vector_store_id}/file_batches", data)
-        if result:
-            # 파일 배치 완료 대기
-            batch_id = result.get("id")
-            if batch_id:
-                with st.spinner("파일을 Vector Store에 추가하는 중..."):
-                    while True:
-                        batch_status = make_api_request("GET", f"/vector_stores/{vector_store_id}/file_batches/{batch_id}")
-                        if batch_status and batch_status.get("status") == "completed":
-                            break
-                        elif batch_status and batch_status.get("status") == "failed":
-                            st.error("파일 배치 처리 실패")
-                            break
-                        time.sleep(2)
-    except Exception as e:
-        st.error(f"Vector Store 파일 추가 실패: {str(e)}")
-
-def delete_file_from_vector_store(vector_store_id: str, file_id: str):
-    """Vector Store에서 파일 삭제"""
-    try:
-        # Vector Store에서 파일 삭제
-        make_api_request("DELETE", f"/vector_stores/{vector_store_id}/files/{file_id}")
-        
-        # OpenAI 파일도 삭제
-        try:
-            client.files.delete(file_id)
-        except:
-            pass  # 파일 삭제 실패는 무시
-            
-    except Exception as e:
-        st.error(f"파일 삭제 실패: {str(e)}")
+if "thread_id" not in st.session_state:
+    st.session_state.thread_id = None
+if "total_questions" not in st.session_state:
+    st.session_state.total_questions = 0
+if "session_start_time" not in st.session_state:
+    st.session_state.session_start_time = datetime.now()
 
 def create_thread() -> str:
     """대화 스레드 생성"""
@@ -242,7 +118,7 @@ def create_thread() -> str:
         st.error(f"Thread 생성 실패: {str(e)}")
         return None
 
-def send_message(thread_id: str, message: str, assistant_id: str) -> str:
+def send_message(thread_id: str, message: str) -> str:
     """메시지 전송 및 응답 받기"""
     try:
         # 메시지 추가
@@ -255,11 +131,11 @@ def send_message(thread_id: str, message: str, assistant_id: str) -> str:
         # 실행 시작
         run = client.beta.threads.runs.create(
             thread_id=thread_id,
-            assistant_id=assistant_id
+            assistant_id=FIXED_ASSISTANT_ID
         )
         
         # 실행 완료 대기
-        with st.spinner("답변을 생성하고 있습니다..."):
+        with st.spinner("🤖 AI가 답변을 생성하고 있습니다..."):
             while True:
                 run_status = client.beta.threads.runs.retrieve(
                     thread_id=thread_id,
@@ -269,10 +145,10 @@ def send_message(thread_id: str, message: str, assistant_id: str) -> str:
                 if run_status.status == "completed":
                     break
                 elif run_status.status == "failed":
-                    st.error(f"답변 생성에 실패했습니다: {run_status.last_error}")
+                    st.error(f"❌ 답변 생성 실패: {run_status.last_error}")
                     return None
                 elif run_status.status == "requires_action":
-                    st.info("추가 작업이 필요합니다...")
+                    st.info("🔄 추가 작업이 필요합니다...")
                 
                 time.sleep(1)
         
@@ -289,167 +165,174 @@ def send_message(thread_id: str, message: str, assistant_id: str) -> str:
         return content
         
     except Exception as e:
-        st.error(f"메시지 전송 실패: {str(e)}")
+        st.error(f"❌ 메시지 전송 실패: {str(e)}")
         return None
 
-# 문서 데이터베이스 로드
-db = load_documents_db()
+def get_suggested_questions():
+    """자주 묻는 질문 예시"""
+    return [
+        "이 의약품의 주요 적응증은 무엇인가요?",
+        "자료제출의약품 제형변경 사례를 알려주세요.",
+        "용법과 용량은 어떻게 되나요?",
+        "투여경로 변경 자료제출의약품 사례를 알려주세요",
+    ]
 
-# 새 문서 업로드 섹션
-# st.header("📤 새 문서 업로드")
-# uploaded_files = st.file_uploader(
-#     "의약품 허가심사보고서를 업로드하세요 (PDF, TXT, DOCX 등):",
-#     accept_multiple_files=True,
-#     type=['pdf', 'txt', 'docx', 'doc', 'csv', 'xlsx', 'md']
-# )
+# 통계 정보 표시
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.metric("💬 총 질문 수", st.session_state.total_questions)
+with col2:
+    session_duration = datetime.now() - st.session_state.session_start_time
+    st.metric("⏱️ 세션 시간", f"{session_duration.seconds // 60}분")
+with col3:
+    st.metric("🤖 Assistant ID", f"***{FIXED_ASSISTANT_ID[-8:]}")
 
-# 사용방법 및 주요기능 안내 수정
+# 기능 소개
 st.markdown("""
-### 📝 사용방법
-- 아래 입력창에 질문을 입력하면, 업로드된 의약품 허가심사보고서와 OpenAI Assistant에 등록된 문서를 기반으로 답변을 받을 수 있습니다.
+<div class="feature-box">
+    <h3>🚀 주요 기능</h3>
+    <ul>
+        <li><strong>즉시 사용 가능</strong>: 별도의 설정 없이 바로 질문 시작</li>
+        <li><strong>전문 지식</strong>: 의약품 허가심사보고서 기반 정확한 답변</li>
+        <li><strong>대화 기록</strong>: 세션 동안 질문과 답변 기록 유지</li>
+        <li><strong>빠른 질문</strong>: 자주 묻는 질문 버튼으로 빠른 접근</li>
+    </ul>
+</div>
+""", unsafe_allow_html=True)
 
-### 💡 주요기능
-- 의약품 허가심사보고서 기반 챗봇 질의응답
-- OpenAI Assistant의 Vector Store에 등록된 문서 자동 활용
-- 별도의 초기화/업로드/삭제 과정 없이 바로 대화 시작 가능
-""")
+# 자주 묻는 질문 버튼들
+st.markdown("### 💡 자주 묻는 질문")
+suggested_questions = get_suggested_questions()
 
-# 챗봇 초기화 섹션
-st.header("🤖 챗봇 초기화")
+# 4개씩 2행으로 배치
+col1, col2, col3, col4 = st.columns(4)
+cols = [col1, col2, col3, col4]
 
-if db["documents"]:
-    if st.button("🚀 챗봇 시작"):
-        with st.spinner("챗봇을 초기화하고 있습니다..."):
-            # 고정된 Assistant ID 확인
-            if verify_fixed_assistant():
-                # Vector Store 가져오기
-                vector_store_id = create_or_get_vector_store(db)
-                
-                if vector_store_id:
-                    # Assistant의 Vector Store 업데이트
-                    if update_assistant_vector_store(vector_store_id):
-                        # Thread 생성
-                        thread_id = create_thread()
-                        
-                        if thread_id:
-                            st.session_state.assistant_id = FIXED_ASSISTANT_ID
-                            st.session_state.thread_id = thread_id
-                            st.session_state.vector_store_id = vector_store_id
-                            st.session_state.messages = []
-                            st.success("✅ 챗봇이 초기화되었습니다! 이제 질문을 입력하세요.")
-                        else:
-                            st.error("Thread 생성에 실패했습니다.")
-                    else:
-                        st.error("Assistant Vector Store 업데이트에 실패했습니다.")
-                else:
-                    st.error("Vector Store 가져오기에 실패했습니다.")
-            else:
-                st.error("고정된 Assistant ID를 확인할 수 없습니다.")
-else:
-    st.info("💡 먼저 의약품 허가심사보고서를 업로드해주세요.")
+for i, question in enumerate(suggested_questions):
+    with cols[i % 4]:
+        if st.button(question, key=f"suggest_{i}", help="클릭하면 자동으로 질문이 입력됩니다"):
+            st.session_state.suggested_question = question
 
-# 챗봇 섹션
-st.header("💬 AI 챗봇")
-
-# 현재 상태 표시
-if st.session_state.assistant_id and st.session_state.thread_id:
-    st.success(f"🟢 챗봇이 활성화되었습니다. (문서 {len(db['documents'])}개 로드됨)")
-    st.info(f"📋 사용 중인 Assistant ID: {FIXED_ASSISTANT_ID}")
+# 제안된 질문이 있으면 자동으로 처리
+if hasattr(st.session_state, 'suggested_question'):
+    suggested_q = st.session_state.suggested_question
+    del st.session_state.suggested_question
     
-    # 대화 기록 표시
-    if st.session_state.messages:
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
+    # Thread 생성 (필요시)
+    if not st.session_state.thread_id:
+        st.session_state.thread_id = create_thread()
     
-    # 메시지 입력
-    if prompt := st.chat_input("의약품 허가심사보고서에 대해 질문하세요..."):
-        # 사용자 메시지 표시
-        with st.chat_message("user"):
-            st.markdown(prompt)
+    if st.session_state.thread_id:
+        # 질문 기록
+        st.session_state.messages.append({"role": "user", "content": suggested_q})
+        st.session_state.total_questions += 1
         
-        # 메시지 기록에 추가
-        st.session_state.messages.append({"role": "user", "content": prompt})
+        # 답변 생성
+        response = send_message(st.session_state.thread_id, suggested_q)
+        
+        if response:
+            st.session_state.messages.append({"role": "assistant", "content": response})
+
+# 대화 기록 표시
+if st.session_state.messages:
+    st.markdown("### 💬 대화 기록")
+    
+    for message in st.session_state.messages:
+        if message["role"] == "user":
+            with st.chat_message("user", avatar="👤"):
+                st.markdown(f"**질문:** {message['content']}")
+        else:
+            with st.chat_message("assistant", avatar="🤖"):
+                st.markdown(message["content"])
+
+# 메시지 입력
+st.markdown("### ✍️ 질문하기")
+user_input = st.chat_input("의약품 허가심사보고서에 대해 질문해보세요...", key="main_input")
+
+if user_input:
+    # Thread 생성 (필요시)
+    if not st.session_state.thread_id:
+        st.session_state.thread_id = create_thread()
+    
+    if st.session_state.thread_id:
+        # 사용자 메시지 추가
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        st.session_state.total_questions += 1
+        
+        # 사용자 메시지 표시
+        with st.chat_message("user", avatar="👤"):
+            st.markdown(f"**질문:** {user_input}")
         
         # AI 응답 생성
-        response = send_message(st.session_state.thread_id, prompt, st.session_state.assistant_id)
+        response = send_message(st.session_state.thread_id, user_input)
         
         if response:
             # AI 응답 표시
-            with st.chat_message("assistant"):
+            with st.chat_message("assistant", avatar="🤖"):
                 st.markdown(response)
             
             # 응답 기록에 추가
             st.session_state.messages.append({"role": "assistant", "content": response})
-else:
-    st.info("💡 '챗봇 시작' 버튼을 클릭하여 챗봇을 활성화하세요.")
+            
+            # 페이지 새로고침으로 통계 업데이트
+            st.rerun()
 
-# 사이드바 정보
-st.sidebar.markdown("---")
-st.sidebar.header("ℹ️ 사용 방법")
-st.sidebar.markdown("""
-1. **API Key 입력**: OpenAI API 키를 입력하세요
-2. **모델 선택**: 사용할 모델을 선택하세요
-3. **문서 업로드**: 의약품 허가심사보고서를 업로드하세요
-4. **챗봇 시작**: '챗봇 시작' 버튼을 클릭하세요
-5. **대화 시작**: 업로드된 문서에 대해 질문하세요
-""")
-
-st.sidebar.markdown("---")
-st.sidebar.header("🎯 주요 기능")
-st.sidebar.markdown("""
-- 💾 **영구 문서 저장**: 문서가 영구적으로 저장됩니다
-- 📁 **문서 관리**: 저장된 문서 목록 확인 및 삭제
-- ➕ **점진적 업로드**: 기존 문서에 새 문서 추가
-- 🔄 **재사용 가능**: 한 번 업로드하면 계속 사용 가능
-- 📊 **Vector Store**: 효율적인 문서 검색 및 관리
-- 🎯 **고정 Assistant**: 특정 Assistant ID로 고정 운영
-- 💊 **의약품 전문**: 허가심사보고서 분석에 특화
-""")
-
-st.sidebar.markdown("---")
-st.sidebar.header("🔧 Assistant 정보")
-st.sidebar.markdown(f"""
-**Assistant ID**: `{FIXED_ASSISTANT_ID}`
-
-이 챗봇은 고정된 Assistant ID를 사용하여 일관된 성능을 제공합니다.
-""")
-
-# 대화 초기화 버튼
-if st.sidebar.button("🔄 대화 초기화"):
-    st.session_state.messages = []
-    st.session_state.thread_id = None
-    st.success("대화가 초기화되었습니다.")
-    st.rerun()
-
-# 전체 초기화 버튼
-if st.sidebar.button("🗑️ 전체 초기화"):
-    if db["documents"]:
-        # 모든 파일 삭제
-        if db.get("vector_store_id"):
-            for doc in db["documents"]:
-                delete_file_from_vector_store(db["vector_store_id"], doc['file_id'])
+# 사이드바 (축소된 상태로 시작)
+with st.sidebar:
+    st.markdown("### 🔧 설정")
     
-    # 세션 상태 초기화
-    st.session_state.messages = []
-    st.session_state.assistant_id = FIXED_ASSISTANT_ID
-    st.session_state.thread_id = None
-    st.session_state.vector_store_id = None
+    # 대화 초기화
+    if st.button("🔄 대화 초기화", help="현재 대화 기록을 모두 삭제합니다"):
+        st.session_state.messages = []
+        st.session_state.thread_id = None
+        st.session_state.total_questions = 0
+        st.session_state.session_start_time = datetime.now()
+        st.success("✅ 대화가 초기화되었습니다!")
+        st.rerun()
     
-    # DB 파일 삭제
-    if os.path.exists(DOCUMENTS_DB_PATH):
-        os.remove(DOCUMENTS_DB_PATH)
+    # 대화 기록 다운로드
+    if st.session_state.messages:
+        chat_history = ""
+        for i, message in enumerate(st.session_state.messages):
+            role = "사용자" if message["role"] == "user" else "AI 챗봇"
+            chat_history += f"{role}: {message['content']}\n\n"
+        
+        st.download_button(
+            label="💾 대화 기록 다운로드",
+            data=chat_history,
+            file_name=f"chat_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+            mime="text/plain",
+            help="현재 대화 기록을 텍스트 파일로 다운로드합니다"
+        )
     
-    st.success("모든 데이터가 초기화되었습니다.")
-    st.rerun()
+    st.markdown("---")
+    st.markdown("### ℹ️ 도움말")
+    st.markdown("""
+    **사용법:**
+    1. 위의 자주 묻는 질문 버튼을 클릭하거나
+    2. 아래 입력창에 직접 질문을 입력하세요
+    
+    **팁:**
+    - 구체적인 질문일수록 정확한 답변을 받을 수 있습니다
+    - 의약품명, 성분명 등을 명확히 명시해주세요
+    - 여러 질문을 한 번에 하기보다는 하나씩 질문해주세요
+    """)
+    
+    st.markdown("---")
+    st.markdown("### 📊 세션 정보")
+    st.markdown(f"**Assistant ID:** `{FIXED_ASSISTANT_ID[-12:]}`")
+    st.markdown(f"**세션 시작:** {st.session_state.session_start_time.strftime('%H:%M:%S')}")
+    
+    # 시스템 상태
+    if st.session_state.thread_id:
+        st.success("🟢 챗봇 활성화됨")
+    else:
+        st.info("⚪ 챗봇 대기중")
 
-# 디버깅 정보 (개발자용)
-if st.sidebar.checkbox("🔍 디버깅 정보 표시"):
-    st.sidebar.markdown("---")
-    st.sidebar.header("🔧 디버깅 정보")
-    st.sidebar.write(f"Fixed Assistant ID: {FIXED_ASSISTANT_ID}")
-    st.sidebar.write(f"Vector Store ID: {st.session_state.vector_store_id}")
-    st.sidebar.write(f"Thread ID: {st.session_state.thread_id}")
-    st.sidebar.write(f"저장된 문서 수: {len(db['documents'])}")
-
-
+# 푸터
+st.markdown("---")
+st.markdown("""
+<div style="text-align: center; color: #666; margin-top: 2rem;">
+    <p>💊 의약품 허가심사보고서 AI 챗봇 | 정확하고 신뢰할 수 있는 의약품 정보를 제공합니다</p>
+</div>
+""", unsafe_allow_html=True)
